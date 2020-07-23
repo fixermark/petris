@@ -28,11 +28,15 @@ start:
 // init global variables
 	set dog_wag_timer 0
 	set dog_wag_frame 0
+	set current_arrow_on 0
+	set arrow_change_timer 20
 
 // prep us up
+   	gosub load_palette
    	gosub clear_background
 	gosub load_dog
 	gosub load_arrows
+	gosub arrows_off
 
 mainloop:
 	gosub nmi_wait
@@ -40,6 +44,8 @@ mainloop:
 	gosub vwait_end
 	gosub game_step
 	goto mainloop
+
+// --------------------------
 
 clear_background:
 	set a $20
@@ -86,6 +92,50 @@ clear_ppu_256:
 		set $2007 a
 		inc x
 		if x <> 16 branchto clear_ppu_256_1
+	return
+
+// load the color palette
+load_palette:
+	set $2006 $3F
+	set $2006 0
+	set x 0
+	load_palette_loop:
+		set $2007 [palette x]
+		inc x
+		if x <> 12 branchto load_palette_loop
+	return
+
+// Set initial palette for all arrows
+arrows_off:
+	set color_pattern %01010101
+	set quadrant 0
+	set x 0
+	arrows_off_loop:
+		set $2006 [arrow_attribute_addresses x]
+		inc x
+		set $2006 [arrow_attribute_addresses x]
+		inc x
+		set quadrant [arrow_attribute_addresses x]
+		set $2007 & color_pattern quadrant
+		inc x
+		if x <> 12 branchto arrows_off_loop
+	return
+
+arrow_on:
+	set arrow_on_count current_arrow_on
+	set arrow_on_offset 0
+	gosub arrows_off
+	arrow_on_loop:
+		if arrow_on_count=0 branchto arrow_on_continue
+		set arrow_on_offset + 3 arrow_on_offset
+		dec arrow_on_count
+		goto arrow_on_loop
+	arrow_on_continue:
+	set $2006 [arrow_attribute_addresses arrow_on_offset]
+	inc arrow_on_offset
+	set $2006 [arrow_attribute_addresses arrow_on_offset]
+	inc arrow_on_offset
+	set $2007 & %10101010 [arrow_attribute_addresses arrow_on_offset]
 	return
 
 // load dog into vram
@@ -143,7 +193,6 @@ load_arrows:
 	set load_arrows_tile_idx 0
 	set load_arrows_load_count 0
 	load_arrows_loop:
-		gosub vwait
 		set $2006 [arrow_coordinates load_arrows_coord_idx]
 		inc load_arrows_coord_idx
 		set $2006 [arrow_coordinates load_arrows_coord_idx]
@@ -218,16 +267,23 @@ game_step:
 	set dog_wag_timer + dog_wag_timer 1
 	if dog_wag_timer = 32 then
 	   set dog_wag_timer 0
-	   gosub dog_wag
+	   inc dog_wag_frame
+	   if dog_wag_frame = 2 set dog_wag_frame 0
+	endif
+	set arrow_change_timer - arrow_change_timer 1
+	if arrow_change_timer = 0 then
+	   set arrow_change_timer 20
+	   inc current_arrow_on
+	   if current_arrow_on = 4 set current_arrow_on 0
 	endif
 	return
 
 draw:
+	gosub dog_wag
+	gosub arrow_on
 	return
 
 dog_wag:
-	set dog_wag_frame + dog_wag_frame 1
-	if dog_wag_frame = 2 set dog_wag_frame 0
 	set $2006 [dog_wag_tile 0]
 	set $2006 [dog_wag_tile 1]
 	set $2007 [dog_wag_chrs dog_wag_frame]
@@ -293,6 +349,30 @@ arrow_tiles:
 	// bottom
 	data $A2, $A3, $B2, $B3
 
+// encoded as high and low order bit of attribute, and bitmask for quadrant to set
+arrow_attribute_addresses:
+	// left (bottom-right)
+	data $23, $CA, $C0
+	// top
+	data $23, $D3, $0C
+	// right
+	data $23, $D4, $0C
+	// bottom
+	data $23, $DA, $C0
+
+palette:
+	// background
+	data $0F
+	// dog
+	data $20, $27, $CC
+	// (unused)
+	data $0F
+	// arrow dark
+	data $01, $11, $12
+	// (unused)
+	data $0F
+	// arrow bright
+	data $11, $22, $31
 
 
 //file footer
