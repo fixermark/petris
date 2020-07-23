@@ -32,6 +32,7 @@ start:
 // prep us up
    	gosub clear_background
 	gosub load_dog
+	gosub load_arrows
 
 mainloop:
 	gosub nmi_wait
@@ -135,7 +136,33 @@ load_dog:
 			set $2007 [dog_dat_5 x]
 			inc x
 			if x <> 32 branchto load_dog_5_loop
+	return
 
+load_arrows:
+	set load_arrows_coord_idx 0
+	set load_arrows_tile_idx 0
+	set load_arrows_load_count 0
+	load_arrows_loop:
+		gosub vwait
+		set $2006 [arrow_coordinates load_arrows_coord_idx]
+		inc load_arrows_coord_idx
+		set $2006 [arrow_coordinates load_arrows_coord_idx]
+		inc load_arrows_coord_idx
+		set $2007 [arrow_tiles load_arrows_tile_idx]
+		inc load_arrows_tile_idx
+		set $2007 [arrow_tiles load_arrows_tile_idx]
+		inc load_arrows_tile_idx
+
+		set $2006 [arrow_coordinates load_arrows_coord_idx]
+		inc load_arrows_coord_idx
+		set $2006 [arrow_coordinates load_arrows_coord_idx]
+		inc load_arrows_coord_idx
+		set $2007 [arrow_tiles load_arrows_tile_idx]
+		inc load_arrows_tile_idx
+		set $2007 [arrow_tiles load_arrows_tile_idx]
+		inc load_arrows_tile_idx
+		inc load_arrows_load_count
+		if load_arrows_load_count <> 4 branchto load_arrows_loop
 	return
 
 
@@ -217,33 +244,55 @@ dog_wag:
 dog_row_start:
 	data $21, 0
 
-dog_dat:
+dog_dat:  // $2100
 	data 0,0,0,0,0,0,0,0,0,0,$42,$43,$44,$45,0,0
 	data 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 	data 0,0,0,0,0,0,0,0,$50,$51,$52,$53,$54,$55,0,0
 	data 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-dog_dat_2:
+dog_dat_2: // $2140
 	data 0,0,0,0,0,0,0,0,0,$61,$62,$63,$64,$65,$66,$67
 	data $68,$69,$6A,$6B,$6C,0,0,0,0,0,0,0,0,0,0,0
 	data 0,0,0,0,0,0,0,0,0,0,0,$73,$74,$75,$76,$77
 	data $78,$79,$7A,$7B,$7C,0,0,0,0,0,0,0,0,0,0,0
-dog_dat_3:
+dog_dat_3: // $2180
 	data 0,0,0,0,0,0,0,0,0,0,0,$83,$84,$85,$86,$87
 	data $88,$89,$8A,$8B,$8C,0,0,0,0,0,0,0,0,0,0,0
 	data 0,0,0,0,0,0,0,0,0,0,0,$93,$94,$95,$96,$97
 	data $98,$99,$9A,$9B,$9C,0,0,0,0,0,0,0,0,0,0,0
-dog_dat_4:
+dog_dat_4: // $21C0
 	data 0,0,0,0,0,0,0,0,0,0,0,0,$A4,$A5,$A6,$A7
 	data $A8,$A9,$AA,$AB,$AC,0,0,0,0,0,0,0,0,0,0,0
 	data 0,0,0,0,0,0,0,0,0,0,0,0,$B4,$B5,0,0
 	data 0,0,0,$BB,$BC,0,0,0,0,0,0,0,0,0,0,0
-dog_dat_5:
+dog_dat_5: // $2200
 	data 0,0,0,0,0,0,0,0,0,0,0,0,$C4,$C5,0,0
 	data 0,0,0,$CB,$CC,0,0,0,0,0,0,0,0,0,0,0
 dog_wag_chrs:
 	data $8C,$8D
 dog_wag_tile:
 	data $21,$94
+
+// arrow top-left coordinates: left, top, right, bottom
+arrow_coordinates:
+	// left
+	data $20, $CA, $20, $EA
+	// top
+	data $21, $0E, $21, $2E
+	// right
+	data $21, $12, $21, $32
+	// bottom
+	data $21, $CA, $21, $EA
+
+arrow_tiles:
+	// left
+	data $22, $23, $32, $33
+	// top
+	data $46, $47, $56, $57
+	// right
+	data $4A, $4B, $5A, $5B
+	// bottom
+	data $A2, $A3, $B2, $B3
+
 
 
 //file footer
