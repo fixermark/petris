@@ -22,10 +22,12 @@ start:
 		ldx #$ff
 		txs ;//reset the stack
 	endasm
-	set $2000 %10101000 //NMI, 8x16 sprites, bg 0, fg 1
+	set $2000 %10000000 //NMI, 8x8 sprites, bg 0, fg 0
 	set $2001 %00011000 //show sprites, bg, clipping
 
 // init global variables
+   	array absolute $200 sprite_mem 256
+
 	set dog_wag_timer 0
 	set dog_wag_frame 0
 	set current_arrow_on 0
@@ -36,6 +38,7 @@ start:
    	gosub clear_background
 	gosub load_dog
 	gosub load_arrows
+	gosub load_score_hand_sprites
 	gosub arrows_off
 
 mainloop:
@@ -102,7 +105,7 @@ load_palette:
 	load_palette_loop:
 		set $2007 [palette x]
 		inc x
-		if x <> 12 branchto load_palette_loop
+		if x <> 32 branchto load_palette_loop
 	return
 
 // Set initial palette for all arrows
@@ -214,6 +217,35 @@ load_arrows:
 		if load_arrows_load_count <> 4 branchto load_arrows_loop
 	return
 
+// Score hands are sprites 4-7
+load_score_hand_sprites:
+	// start at 4th sprite, 4 << 2
+	set lshs_store_idx 16
+	set lshs_load_idx 0
+	set lshs_attribs 0
+	load_score_hand_sprites_loop:
+		set [sprite_mem lshs_store_idx] [score_hand_positions lshs_load_idx]
+		inc lshs_store_idx
+		inc lshs_load_idx
+
+		// hand icon is $01
+		set [sprite_mem lshs_store_idx] $01
+		inc lshs_store_idx
+
+		set [sprite_mem lshs_store_idx] lshs_attribs
+		inc lshs_store_idx
+		// taking advantage of the fact palette selection is low-order bits, inc 1 to get player 2, player 3, etc. colors
+		inc lshs_attribs
+
+		set [sprite_mem lshs_store_idx] [score_hand_positions lshs_load_idx]
+		inc lshs_store_idx
+		inc lshs_load_idx
+
+		// 32 is position of 8th sprite, 8 << 2
+		if lshs_store_idx <> 32 branchto load_score_hand_sprites_loop
+	return
+
+
 
 nmi_wait:
 	set nmi_hit 0
@@ -281,6 +313,8 @@ game_step:
 draw:
 	gosub dog_wag
 	gosub arrow_on
+	// flush the sprites at $200 to the sprite buffer
+	set $4014 2
 	return
 
 dog_wag:
@@ -360,22 +394,40 @@ arrow_attribute_addresses:
 	// bottom
 	data $23, $DA, $C0
 
+// y and x positions of score hands
+score_hand_positions:
+	data $10,$10, $10,$C8, $C8,$10, $C8, $C8
+
+
 palette:
 	// background
 	data $0F
 	// dog
 	data $20, $27, $CC
-	// (unused)
-	data $0F
 	// arrow dark
+	data $0F
 	data $01, $11, $12
+	// arrow bright
+	data $0F
+	data $11, $22, $31
 	// (unused)
 	data $0F
-	// arrow bright
-	data $11, $22, $31
+	data $0F, $0F, $0F
+	// P1 hand
+	data $0F
+	data $20, $15, $2D
+	// P2 hand
+	data $0F
+	data $20, $2A, $2D
+	// P3 hand
+	data $0F
+	data $20, $11, $2D
+	// P4 hand
+	data $0F
+	data $20, $23, $2D
 
 
-//file footer
+//File footer
 asm
 ;//jump table points to NMI, Reset, and IRQ start points
 	.bank 1
