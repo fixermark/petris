@@ -23,10 +23,13 @@ start:
 		txs ;//reset the stack
 	endasm
 	set $2000 %10000000 //NMI, 8x8 sprites, bg 0, fg 0
-	set $2001 %00011000 //show sprites, bg, clipping
+	set $2001 %00011000 //show sprites, bg, clipping, emphasize red
 
 // init global variables
    	array absolute $200 sprite_mem 256
+	array joy 4
+	array joy_prev 4
+	array joy_edge 4
 
 	set dog_wag_timer 0
 	set dog_wag_frame 0
@@ -36,19 +39,101 @@ start:
 // prep us up
    	gosub load_palette
    	gosub clear_background
+	gosub load_logo
 	gosub load_dog
 	gosub load_arrows
 	gosub load_score_hand_sprites
+	gosub load_play_hand_sprites
 	gosub arrows_off
+
+// -------- GAME LOGIC ------
 
 mainloop:
 	gosub nmi_wait
 	gosub draw
 	gosub vwait_end
+	gosub load_joysticks
 	gosub game_step
 	goto mainloop
 
-// --------------------------
+// Controller data format
+// H - - - - - - - - L
+//   A B S S U D L R
+//       E T
+load_joysticks:
+	set [joy 0] 0
+	set $4016 1 // first strobe byte
+	set $4016 0 // second strobe byte
+	set load_joysticks_loopctr 0
+	load_joysticks_loop_p1:
+		set [joy 0] << [joy 0] 1
+		set [joy 0] | [joy 0] & [$4016] 1
+		inc load_joysticks_loopctr
+		if load_joysticks_loopctr <> 8 branchto load_joysticks_loop_p1
+	set [joy 2] 0
+	// no strobe
+	set load_joysticks_loopctr 0
+	load_joysticks_loop_p3:
+		set [joy 2] << [joy 2] 1
+		set [joy 2] | [joy 2] & [$4016] 1
+		inc load_joysticks_loopctr
+		if load_joysticks_loopctr <> 8 branchto load_joysticks_loop_p3
+	set [joy 1] 0
+	set $4017 1 // first strobe byte
+	set $4017 0 // second strobe byte
+	set load_joysticks_loopctr 0
+	load_joysticks_loop_p2:
+		set [joy 1] << [joy 1] 1
+		set [joy 1] | [joy 1] & [$4017] 1
+		inc load_joysticks_loopctr
+		if load_joysticks_loopctr <> 8 branchto load_joysticks_loop_p2
+	set [joy 3] 0
+	// no strobe
+	set load_joysticks_loopctr 0
+	load_joysticks_loop_p4:
+		set [joy 3] << [joy 3] 1
+		set [joy 3] | [joy 3] & [$4017] 1
+		inc load_joysticks_loopctr
+		if load_joysticks_loopctr <> 8 branchto load_joysticks_loop_p4
+	// set up rising edges
+	set load_joysticks_loopctr 0
+	load_joysticks_loop_rise:
+		set detect_edge_cur [joy load_joysticks_loopctr]
+		set detect_edge_prev [joy_prev load_joysticks_loopctr]
+		gosub detect_edge
+		set [joy_edge load_joysticks_loopctr] detect_edge_cur
+		set [joy_prev load_joysticks_loopctr] [joy load_joysticks_loopctr]
+		inc load_joysticks_loopctr
+		if load_joysticks_loopctr <> 4 branchto load_joysticks_loop_rise
+	return
+
+// expects detect_edge_cur and detect_edge_prev to be set to cur and prev vals
+// on return, detect_edge_cur is the rising edges and detect_edge_prev is destroyed
+detect_edge:
+	// NOT detect_edge_prev
+	set detect_edge_prev ^ %11111111 detect_edge_prev
+	set detect_edge_cur & detect_edge_cur detect_edge_prev
+	return
+
+
+update_hands:
+	set update_hands_check & [joy_edge 0] %00001111
+	if update_hands_check = 0 return
+	set update_hands_accum 0
+	update_hands_loop:
+		inc update_hands_accum
+		set update_hands_check >> update_hands_check 1
+		if update_hands_check <> 0 branchto update_hands_loop
+	dec update_hands_accum
+	set update_hands_accum << update_hands_accum 1
+	set [sprite_mem 0] [pet_hand_positions update_hands_accum]
+	inc update_hands_accum
+	set [sprite_mem 3] [pet_hand_positions update_hands_accum]
+	return
+
+
+
+// -------- PPU MANIPULATION ---------
 
 clear_background:
 	set a $20
@@ -141,6 +226,31 @@ arrow_on:
 	set $2007 & %10101010 [arrow_attribute_addresses arrow_on_offset]
 	return
 
+// load Petris logo into vram
+load_logo:
+	set load_logo_row_idx 0
+	set load_logo_first_tile_idx 0
+	set load_logo_rows_loaded 0
+	load_logo_row_loop:
+		set $2006 [petris_logo_rows_start load_logo_row_idx]
+		inc load_logo_row_idx
+		set $2006 [petris_logo_rows_start load_logo_row_idx]
+		inc load_logo_row_idx
+
+		set load_logo_tile_to_load [petris_logo_row_first_tiles load_logo_first_tile_idx]
+		inc load_logo_first_tile_idx
+		set load_logo_tiles_loaded 0
+		load_logo_tile_loop:
+			set $2007 load_logo_tile_to_load
+			inc load_logo_tile_to_load
+			inc load_logo_tiles_loaded
+			if load_logo_tiles_loaded <> 5 branchto load_logo_tile_loop
+		inc load_logo_rows_loaded
+		if load_logo_rows_loaded <> 2 branchto load_logo_row_loop
+	return
+
+
+
 // load dog into vram
 load_dog:
 	set load_dog_vram_major [dog_row_start 0]
@@ -216,6 +326,27 @@ load_arrows:
 		inc load_arrows_load_count
 		if load_arrows_load_count <> 4 branchto load_arrows_loop
 	return
+
+// Play hands are sprites 0-3
+load_play_hand_sprites:
+	set lphs_ctr 0
+	set lphs_attribs 0
+	load_play_hand_sprites_loop:
+		set [sprite_mem lphs_ctr] $FF
+		inc lphs_ctr
+		// hand icon is $01
+		set [sprite_mem lphs_ctr] $01
+		inc lphs_ctr
+		set [sprite_mem lphs_ctr] lphs_attribs
+		inc lphs_ctr
+		// taking advantage of the fact palette selection is low-order bits, inc 1 to get player 2, player 3, etc. colors
+		inc lphs_attribs
+		set [sprite_mem lphs_ctr] $FF
+		inc lphs_ctr
+		// 16 is position of 4th sprite, 4 << 2
+		if lphs_ctr <> 16 branchto load_play_hand_sprites_loop
+	return
+
 
 // Score hands are sprites 4-7
 load_score_hand_sprites:
@@ -308,6 +439,7 @@ game_step:
 	   inc current_arrow_on
 	   if current_arrow_on = 4 set current_arrow_on 0
 	endif
+	gosub update_hands
 	return
 
 draw:
@@ -327,6 +459,18 @@ dog_wag:
 	set $2005 0
 	set $2005 0
 	return
+
+// --------- DATA -----------
+
+// --- display objects
+
+// Petris logo is 2 high, 5 wide
+// start at tile y=3, x=11
+petris_logo_rows_start:
+	data $20, $6D, $20,$8D
+
+petris_logo_row_first_tiles:
+	data $05, $15
 
 
 // dog is 9 high, 13 wide
@@ -394,6 +538,13 @@ arrow_attribute_addresses:
 	// bottom
 	data $23, $DA, $C0
 
+
+// y and x pet positions of petting hands
+// encoded as hand_index, <<3 + position(right,left,down,up) << 2
+pet_hand_positions:
+	// TODO: convert positions of dog body parts into hand positions
+	data $4E,$8E, $3D,$59, $61,$57, $4F,$70
+
 // y and x positions of score hands
 score_hand_positions:
 	data $10,$10, $10,$C8, $C8,$10, $C8, $C8
@@ -415,7 +566,7 @@ palette:
 	data $0F, $0F, $0F
 	// P1 hand
 	data $0F
-	data $20, $15, $2D
+	data $20, $26, $2D
 	// P2 hand
 	data $0F
 	data $20, $2A, $2D
