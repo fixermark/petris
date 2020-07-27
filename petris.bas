@@ -30,7 +30,12 @@ start:
 	array joy 4
 	array joy_prev 4
 	array joy_edge 4
+	array scores 4
+	array zeropage seed 2
 
+	// TODO(markt): configure the seed by a delay timer from starting the game
+	set [seed 0] 19
+	set [seed 1] 82
 	set dog_wag_timer 0
 	set dog_wag_frame 0
 	set current_arrow_on 0
@@ -41,12 +46,48 @@ start:
    	gosub clear_background
 	gosub load_logo
 	gosub load_dog
+	gosub load_press_a_msg
 	gosub load_arrows
+	gosub load_score_text_init
 	gosub load_score_hand_sprites
 	gosub load_play_hand_sprites
 	gosub arrows_off
 
 // -------- GAME LOGIC ------
+
+mainwait:
+	gosub nmi_wait
+	// flush the sprites at $200 to the sprite buffer
+	set $4014 2
+	gosub vwait_end
+	gosub load_joysticks
+	set [seed 0] + [seed 0] 1
+	if [seed 0] = 0 set [seed 1] + [seed 1] 1
+	if [seed 1] = 0 set [seed 1] 1
+	// check A button press
+	if & [joy_edge 0]  %10000000 = 0 branchto mainwait
+
+	gosub nmi_wait
+	gosub clear_press_a_msg
+	gosub vwait_end
+
+set countdown_step 3
+set countdown_delay 60
+countdown:
+	gosub nmi_wait
+	gosub draw_countdown
+	gosub vwait_end
+	gosub load_joysticks
+	dec countdown_delay
+	if countdown_delay = 0 then
+	   dec countdown_step
+	   set countdown_delay 60
+	endif
+	if countdown_step <> 0 branchto countdown
+
+	gosub nmi_wait
+	gosub load_pet_msg
+	gosub vwait_end
 
 mainloop:
 	gosub nmi_wait
@@ -117,18 +158,46 @@ detect_edge:
 
 
 update_hands:
-	set update_hands_check & [joy_edge 0] %00001111
-	if update_hands_check = 0 return
-	set update_hands_accum 0
+	set update_hands_player 0
 	update_hands_loop:
-		inc update_hands_accum
-		set update_hands_check >> update_hands_check 1
-		if update_hands_check <> 0 branchto update_hands_loop
-	dec update_hands_accum
-	set update_hands_accum << update_hands_accum 1
-	set [sprite_mem 0] [pet_hand_positions update_hands_accum]
-	inc update_hands_accum
-	set [sprite_mem 3] [pet_hand_positions update_hands_accum]
+		set find_hand_dir_arg [joy_edge update_hands_player]
+		gosub find_hand_dir
+		if find_hand_dir_arg <> 0 then
+				set hand_click_arg - find_hand_dir_arg 1
+				gosub hand_click
+		endif
+		inc update_hands_player
+		if update_hands_player <> 4 branchto update_hands_loop
+
+// figure out which direction the hand points based on edge-detect on a joystick
+// input: find_hand_dir_arg is the edge-detect on the joy controlling the hand
+// output: find_hand_dir_arg is the hand direction (0=none, 1=right, 2=left, 3=down, 4=up)
+find_hand_dir:
+	set find_hand_dir_arg & find_hand_dir_arg %00001111
+	if find_hand_dir_arg = 0 return
+	set find_hand_dir_accum 0
+	find_hand_dir_loop:
+		inc find_hand_dir_accum
+		set find_hand_dir_arg >> find_hand_dir_arg 1
+		if find_hand_dir_arg <> 0 branchto find_hand_dir_loop
+	set find_hand_dir_arg find_hand_dir_accum
+	return
+
+// updates the hand state when controller button pressed
+// update_hands_player: player we are updating
+// hand_click_arg: direction that was clicked (0=right, 1=left, 2=down, 3=up), or 0 for no click
+hand_click:
+	// determine if score goes up or down
+	if hand_click_arg = current_arrow_on set [scores update_hands_player] + [scores update_hands_player] 1
+	if hand_click_arg <> current_arrow_on then
+	   if [scores update_hands_player] > 0 set [scores update_hands_player] - [scores update_hands_player] 1
+	endif
+	set hand_click_sprite_offset << update_hands_player 2
+	set hand_click_position_offset + << update_hands_player 3 << hand_click_arg 1
+	set [sprite_mem hand_click_sprite_offset] [pet_hand_positions hand_click_position_offset]
+	set hand_click_sprite_offset + hand_click_sprite_offset 3
+	inc hand_click_position_offset
+	set [sprite_mem hand_click_sprite_offset] [pet_hand_positions hand_click_position_offset]
 	return
 
 
@@ -249,6 +318,41 @@ load_logo:
 		if load_logo_rows_loaded <> 2 branchto load_logo_row_loop
 	return
 
+// load "Press A!" call to action into VRAM
+load_press_a_msg:
+	set $2006 [press_a_msg 0]
+	set $2006 [press_a_msg 1]
+	set tmp [press_a_msg 2]
+	set press_a_msg_ctr [press_a_msg 3]
+	load_press_a_msg_loop:
+		set $2007 tmp
+		inc tmp
+		dec press_a_msg_ctr
+		if press_a_msg_ctr <> 0 branchto load_press_a_msg_loop
+	return
+
+clear_press_a_msg:
+	set $2006 [press_a_msg 0]
+	set $2006 [press_a_msg 1]
+	set press_a_msg_ctr [press_a_msg 3]
+	clear_press_a_msg_loop:
+		set $2007 $00
+		dec press_a_msg_ctr
+		if press_a_msg_ctr <> 0 branchto clear_press_a_msg_loop
+	return
+
+// load "Pet!" call to action into VRAM
+load_pet_msg:
+	set $2006 [pet_msg 0]
+	set $2006 [pet_msg 1]
+	set tmp [pet_msg 2]
+	set pet_msg_ctr [press_a_msg 3]
+	load_pet_msg_loop:
+		set $2007 tmp
+		inc tmp
+		dec pet_msg_ctr
+		if pet_msg_ctr <> 0 branchto load_pet_msg_loop
+	return
 
 
 // load dog into vram
@@ -376,7 +480,20 @@ load_score_hand_sprites:
 		if lshs_store_idx <> 32 branchto load_score_hand_sprites_loop
 	return
 
-
+load_score_text_init:
+	set lsti_counter 0
+	set lsti_loadfrom 0
+	lsti_loop:
+		set $2006 [score_text_positions	lsti_loadfrom]
+		inc lsti_loadfrom
+		set $2006 - [score_text_positions lsti_loadfrom] 1
+		inc lsti_loadfrom
+		set $2007 $F1
+		set $2007 $F2
+		set $2007 $F2
+		inc lsti_counter
+		if lsti_counter <> 4 branchto lsti_loop
+	return
 
 nmi_wait:
 	set nmi_hit 0
@@ -434,17 +551,25 @@ game_step:
 	   if dog_wag_frame = 2 set dog_wag_frame 0
 	endif
 	set arrow_change_timer - arrow_change_timer 1
-	if arrow_change_timer = 0 then
-	   set arrow_change_timer 20
-	   inc current_arrow_on
-	   if current_arrow_on = 4 set current_arrow_on 0
-	endif
+	if arrow_change_timer = 0 gosub change_arrow
 	gosub update_hands
 	return
+
+change_arrow:
+	gosub random
+	set change_arrow_val a
+	set current_arrow_on & change_arrow_val %00000011
+	set change_arrow_val %01111111
+	set change_arrow_val >> change_arrow_val 1
+	// choose a value between 72 and 103
+	set arrow_change_timer + | change_arrow_val %00100000 40
+	return
+
 
 draw:
 	gosub dog_wag
 	gosub arrow_on
+	gosub draw_scores
 	// flush the sprites at $200 to the sprite buffer
 	set $4014 2
 	return
@@ -460,6 +585,67 @@ dog_wag:
 	set $2005 0
 	return
 
+draw_countdown:
+	set $2006 [countdown_msg 0]
+	set $2006 [countdown_msg 1]
+	set $2007 + countdown_step $F2
+	set $2007 [dot_dot_dot 0]
+	return
+
+draw_scores:
+	set draw_scores_player 0
+	draw_scores_loop:
+		set compute_score_arg [scores draw_scores_player]
+		gosub compute_score_sprites
+		set $2006 [score_text_positions << draw_scores_player 1]
+		set $2006 [score_text_positions + 1 << draw_scores_player 1]
+		set $2007 score_sprite_tens
+		set $2007 score_sprite_ones
+		inc draw_scores_player
+		if draw_scores_player <> 4 branchto draw_scores_loop
+		return
+
+// computes the sprites representing a score
+// input: compute_score_arg is score to compute sprites for
+// on return, score_sprite_tens is ID of tens, score_sprite_arg is ID of ones
+compute_score_sprites:
+	set score_sprite_tens 0
+	if compute_score_arg < 10 then
+	   set score_sprite_tens $F2
+	   set score_sprite_ones + compute_score_arg $F2
+	   return
+	endif
+	compute_score_sprites_loop:
+		inc score_sprite_tens
+		set compute_score_arg - compute_score_arg 10
+		if compute_score_arg > 9 branchto compute_score_sprites_loop
+	set score_sprite_tens + score_sprite_tens $F2
+	set score_sprite_ones + compute_score_arg $F2
+	return
+
+// galois 16-bit RNG, galois16 from https://github.com/bbbradsmith/prng_6502/blob/master/galois16.s
+// on return, y is clobbered and a is set to an 8-bit random val
+random:
+	asm
+		ldy #8
+		lda seed+0
+	endasm
+random1:
+	asm
+		asl a       ; shift the register
+		rol seed+1
+		bcc random2
+		eor #$39   ; apply XOR feedback whenever a 1 bit is shifted out
+	endasm
+random2:
+	asm
+		dey
+		bne random1
+		sta seed+0
+		cmp #0     ; reload flags
+		endasm
+	return
+
 // --------- DATA -----------
 
 // --- display objects
@@ -472,6 +658,20 @@ petris_logo_rows_start:
 petris_logo_row_first_tiles:
 	data $05, $15
 
+// "Press A!" call to action tile high-byte, tile low-byte, CHR start, CHR length
+press_a_msg:
+	data $21,$EE,$E7,$04
+
+// "Pet!" call to action tile high-byte, tile low-byte, CHR start, CHR length
+pet_msg:
+	data $21,$EF,$EB,$03
+
+// dot-dot-dot suffix CHR
+dot_dot_dot:
+	data $FC
+// countdown high and low tile bytes
+countdown_msg:
+	data $21,$EF
 
 // dog is 9 high, 13 wide
 // start at row 8, col 8
@@ -508,46 +708,53 @@ dog_wag_tile:
 
 // arrow top-left coordinates: left, top, right, bottom
 arrow_coordinates:
-	// left
-	data $20, $CA, $20, $EA
-	// top
-	data $21, $0E, $21, $2E
 	// right
 	data $21, $12, $21, $32
+	// left
+	data $20, $CA, $20, $EA
 	// bottom
 	data $21, $CA, $21, $EA
+	// top
+	data $21, $0E, $21, $2E
 
 arrow_tiles:
-	// left
-	data $22, $23, $32, $33
-	// top
-	data $46, $47, $56, $57
 	// right
 	data $4A, $4B, $5A, $5B
+	// left
+	data $22, $23, $32, $33
 	// bottom
 	data $A2, $A3, $B2, $B3
+	// top
+	data $46, $47, $56, $57
 
 // encoded as high and low order bit of attribute, and bitmask for quadrant to set
 arrow_attribute_addresses:
-	// left (bottom-right)
-	data $23, $CA, $C0
-	// top
-	data $23, $D3, $0C
 	// right
 	data $23, $D4, $0C
+	// left (bottom-right)
+	data $23, $CA, $C0
 	// bottom
 	data $23, $DA, $C0
+	// top
+	data $23, $D3, $0C
 
 
 // y and x pet positions of petting hands
-// encoded as hand_index, <<3 + position(right,left,down,up) << 2
+// encoded as hand_index, <<3 + position(right,left,down,up) << 1
 pet_hand_positions:
-	// TODO: convert positions of dog body parts into hand positions
 	data $4E,$8E, $3D,$59, $61,$57, $4F,$70
+	data $4E,$94, $3D,$5F, $61,$5D, $4F,$76
+	data $4E,$9A, $3D,$65, $61,$63, $4F,$7C
+	data $4E,$A0, $3D,$6B, $61,$68, $4F,$81
 
 // y and x positions of score hands
 score_hand_positions:
 	data $10,$10, $10,$C8, $C8,$10, $C8, $C8
+
+// high-bit and low-bit background tile positions of score text
+score_text_positions:
+data $20,$44, $20,$5B
+data $23,$24, $23,$3B
 
 
 palette:
