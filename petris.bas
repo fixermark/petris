@@ -2,7 +2,7 @@
 asm
 	.inesprg 1 ;//one PRG bank
 	.ineschr 1 ;//one CHR bank
-	.inesmir 0 ;//mirroring type 0
+	.inesmir 1 ;//mirroring type 1 (vertical)
 	.inesmap 0 ;//memory mapper 0 (none)
 	.org $8000
 	.bank 0
@@ -23,7 +23,7 @@ start:
 		txs ;//reset the stack
 	endasm
 	set $2000 %10000000 //NMI, 8x8 sprites, bg 0, fg 0
-	set $2001 %00011000 //show sprites, bg, clipping, emphasize red
+	set $2001 %00000000 // disable PPU for initialization
 
 // init global variables
    	array absolute $200 sprite_mem 256
@@ -33,17 +33,23 @@ start:
 	array scores 4
 	array zeropage seed 2
 
-	// TODO(markt): configure the seed by a delay timer from starting the game
+initgame:
 	set [seed 0] 19
 	set [seed 1] 82
 	set dog_wag_timer 0
 	set dog_wag_frame 0
 	set current_arrow_on 0
 	set arrow_change_timer 20
+	set playing 0
+	set [scores 0] 0
+	set [scores 1] 0
+	set [scores 2] 0
+	set [scores 3] 0
 
 // prep us up
-   	gosub load_palette
    	gosub clear_background
+	gosub load_palette
+	gosub clear_second_buffer
 	gosub load_logo
 	gosub load_dog
 	gosub load_press_a_msg
@@ -51,7 +57,11 @@ start:
 	gosub load_score_text_init
 	gosub load_score_hand_sprites
 	gosub load_play_hand_sprites
+	gosub load_end_screen
 	gosub arrows_off
+
+	gosub vwait
+	set $2001 %00011000 //show sprites, bg
 
 // -------- GAME LOGIC ------
 
@@ -64,6 +74,7 @@ mainwait:
 	set [seed 0] + [seed 0] 1
 	if [seed 0] = 0 set [seed 1] + [seed 1] 1
 	if [seed 1] = 0 set [seed 1] 1
+	gosub update_hands
 	// check A button press
 	if & [joy_edge 0]  %10000000 = 0 branchto mainwait
 
@@ -89,13 +100,37 @@ countdown:
 	gosub load_pet_msg
 	gosub vwait_end
 
+	set playing 1
+	set countdown_step 20
+	set countdown_delay 60
 mainloop:
 	gosub nmi_wait
 	gosub draw
 	gosub vwait_end
 	gosub load_joysticks
 	gosub game_step
-	goto mainloop
+	if countdown_step <> 0 branchto mainloop
+
+enter_end:
+	set playing 0
+	gosub hide_hands
+	gosub compute_winner
+
+end:
+	gosub nmi_wait
+	// flush the sprites at $200 to the sprite buffer
+	set $4014 2
+	gosub vwait_end
+	set $2005 255
+	set $2005 0
+	gosub load_joysticks
+	if & [joy_edge 0] %10000000 = 0 branchto end
+
+	// pause rendering
+	set $2001 0
+	set $2005 0
+	set $2005 0
+	goto initgame
 
 // Controller data format
 // H - - - - - - - - L
@@ -187,15 +222,22 @@ find_hand_dir:
 // update_hands_player: player we are updating
 // hand_click_arg: direction that was clicked (0=right, 1=left, 2=down, 3=up), or 0 for no click
 hand_click:
-	// determine if score goes up or down
-	if hand_click_arg = current_arrow_on set [scores update_hands_player] + [scores update_hands_player] 1
-	if hand_click_arg <> current_arrow_on then
-	   if [scores update_hands_player] > 0 set [scores update_hands_player] - [scores update_hands_player] 1
+	set uhoh 0
+	if playing = 1 then
+	   	   // determine if score goes up or down
+	      	   if hand_click_arg = current_arrow_on set [scores update_hands_player] + [scores update_hands_player] 1
+		   if hand_click_arg <> current_arrow_on then
+	   	      if [scores update_hands_player] > 0 set [scores update_hands_player] - [scores update_hands_player] 1
+		      set uhoh 1
+		   endif
 	endif
 	set hand_click_sprite_offset << update_hands_player 2
 	set hand_click_position_offset + << update_hands_player 3 << hand_click_arg 1
 	set [sprite_mem hand_click_sprite_offset] [pet_hand_positions hand_click_position_offset]
-	set hand_click_sprite_offset + hand_click_sprite_offset 3
+	inc hand_click_sprite_offset
+	// switch from hand icon to X-hand icon if this was a bad pet
+	set [sprite_mem hand_click_sprite_offset] + $01 uhoh
+	set hand_click_sprite_offset + hand_click_sprite_offset 2
 	inc hand_click_position_offset
 	set [sprite_mem hand_click_sprite_offset] [pet_hand_positions hand_click_position_offset]
 	return
@@ -212,6 +254,17 @@ clear_background:
 	set a $22
 	gosub clear_background_helper
 	set a $23
+	gosub clear_background_helper
+return
+
+clear_second_buffer:
+	set a $24
+	gosub clear_background_helper
+	set a $25
+	gosub clear_background_helper
+	set a $26
+	gosub clear_background_helper
+	set a $27
 	gosub clear_background_helper
 	return
 
@@ -495,6 +548,16 @@ load_score_text_init:
 		if lsti_counter <> 4 branchto lsti_loop
 	return
 
+load_end_screen:
+	set $2006 [win_text 0]
+	set $2006 [win_text 1]
+	set load_end_screen_ctr 2
+	load_end_screen_loop:
+		set $2007 [win_text load_end_screen_ctr]
+		inc load_end_screen_ctr
+		if load_end_screen_ctr <> 10 branchto load_end_screen_loop
+	return
+
 nmi_wait:
 	set nmi_hit 0
 	nmi_wait_1:
@@ -552,6 +615,11 @@ game_step:
 	endif
 	set arrow_change_timer - arrow_change_timer 1
 	if arrow_change_timer = 0 gosub change_arrow
+	dec countdown_delay
+	if countdown_delay = 0 then
+	   set countdown_delay 60
+	   dec countdown_step
+	endif
 	gosub update_hands
 	return
 
@@ -570,6 +638,7 @@ draw:
 	gosub dog_wag
 	gosub arrow_on
 	gosub draw_scores
+	gosub draw_timer
 	// flush the sprites at $200 to the sprite buffer
 	set $4014 2
 	return
@@ -605,6 +674,15 @@ draw_scores:
 		if draw_scores_player <> 4 branchto draw_scores_loop
 		return
 
+draw_timer:
+	set $2006 [clock_location 0]
+	set $2006 [clock_location 1]
+	set compute_score_arg countdown_step
+	gosub compute_score_sprites
+	set $2007 score_sprite_tens
+	set $2007 score_sprite_ones
+	return
+
 // computes the sprites representing a score
 // input: compute_score_arg is score to compute sprites for
 // on return, score_sprite_tens is ID of tens, score_sprite_arg is ID of ones
@@ -622,6 +700,30 @@ compute_score_sprites:
 	set score_sprite_tens + score_sprite_tens $F2
 	set score_sprite_ones + compute_score_arg $F2
 	return
+
+hide_hands:
+	set hide_hands_ctr 0
+	hide_hands_loop:
+		set [sprite_mem hide_hands_ctr] $FF
+		set hide_hands_ctr + 4 hide_hands_ctr
+		if hide_hands_ctr <> 32 branchto hide_hands_loop
+	return
+
+compute_winner:
+	set winner 0
+	set winner_score 0
+	set winner_ctr 0
+	compute_winner_find_loop:
+		if [scores winner_ctr] > winner_score then
+		   set winner winner_ctr
+		   set winner_score [scores winner_ctr]
+		endif
+		inc winner_ctr
+		if winner_ctr <> 4 branchto compute_winner_find_loop
+	set [sprite_mem 0] 95
+	set [sprite_mem 3] 119
+	set [sprite_mem 2] winner
+return
 
 // galois 16-bit RNG, galois16 from https://github.com/bbbradsmith/prng_6502/blob/master/galois16.s
 // on return, y is clobbered and a is set to an 8-bit random val
@@ -665,6 +767,9 @@ press_a_msg:
 // "Pet!" call to action tile high-byte, tile low-byte, CHR start, CHR length
 pet_msg:
 	data $21,$EF,$EB,$03
+// clock tile high-byte, tile low-byte
+clock_location:
+	data $22,$0F
 
 // dot-dot-dot suffix CHR
 dot_dot_dot:
@@ -756,6 +861,11 @@ score_text_positions:
 data $20,$44, $20,$5B
 data $23,$24, $23,$3B
 
+// high-bit, low-bit, and tile indices for "wins" text
+win_text:
+// 25 8b
+	data $25, $8B, $E0, $E1, $E2, $E3, $00, $E4, $E5, $E6
+
 
 palette:
 	// background
@@ -770,19 +880,19 @@ palette:
 	data $11, $22, $31
 	// (unused)
 	data $0F
-	data $0F, $0F, $0F
+	data $20, $27, $CC
 	// P1 hand
 	data $0F
-	data $20, $26, $2D
+	data $20, $26, $25
 	// P2 hand
 	data $0F
-	data $20, $2A, $2D
+	data $20, $2A, $25
 	// P3 hand
 	data $0F
-	data $20, $11, $2D
+	data $20, $11, $25
 	// P4 hand
 	data $0F
-	data $20, $23, $2D
+	data $20, $23, $25
 
 
 //File footer
