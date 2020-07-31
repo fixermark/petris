@@ -27,6 +27,9 @@ start:
 
 // init global variables
    	array absolute $200 sprite_mem 256
+	array sprite_y 4
+	array sprite_x 4
+	array sprite_anim_idx 4
 	array joy 4
 	array joy_prev 4
 	array joy_edge 4
@@ -36,6 +39,13 @@ start:
 initgame:
 	set [seed 0] 19
 	set [seed 1] 82
+	set initgame_ctr 0
+	    initgame_loop:
+		set [sprite_y initgame_ctr] $FF
+		set [sprite_x initgame_ctr] $00
+		set [sprite_anim_idx initgame_ctr] $FF
+		inc initgame_ctr
+		if initgame_ctr <> 4 branchto initgame_loop
 	set dog_wag_timer 0
 	set dog_wag_frame 0
 	set current_arrow_on 0
@@ -115,14 +125,20 @@ enter_end:
 	set playing 0
 	gosub hide_hands
 	gosub compute_winner
+	set enter_end_ctr 1
+	enter_end_loop:
+		set [sprite_mem enter_end_ctr] $01
+		set enter_end_ctr + enter_end_ctr 4
+		if enter_end_ctr <> 17 branchto enter_end_loop
 
 end:
 	gosub nmi_wait
+	gosub draw_scores
 	// flush the sprites at $200 to the sprite buffer
 	set $4014 2
 	gosub vwait_end
-	set $2005 255
-	set $2005 0
+	set $2000 %10000001 //NMI, 8x8 sprites, scroll one page over
+
 	gosub load_joysticks
 	if & [joy_edge 0] %10000000 = 0 branchto end
 
@@ -130,6 +146,7 @@ end:
 	set $2001 0
 	set $2005 0
 	set $2005 0
+	set $2000 %10000000
 	goto initgame
 
 // Controller data format
@@ -231,17 +248,42 @@ hand_click:
 		      set uhoh 1
 		   endif
 	endif
-	set hand_click_sprite_offset << update_hands_player 2
 	set hand_click_position_offset + << update_hands_player 3 << hand_click_arg 1
-	set [sprite_mem hand_click_sprite_offset] [pet_hand_positions hand_click_position_offset]
-	inc hand_click_sprite_offset
+	set [sprite_y update_hands_player] [pet_hand_positions hand_click_position_offset]
+	inc hand_click_position_offset
+	set [sprite_x update_hands_player] [pet_hand_positions hand_click_position_offset]
+	set [sprite_anim_idx update_hands_player] $00
+
+	set hand_click_sprite_offset + << update_hands_player 2 1
 	// switch from hand icon to X-hand icon if this was a bad pet
 	set [sprite_mem hand_click_sprite_offset] + $01 uhoh
-	set hand_click_sprite_offset + hand_click_sprite_offset 2
-	inc hand_click_position_offset
-	set [sprite_mem hand_click_sprite_offset] [pet_hand_positions hand_click_position_offset]
 	return
 
+
+// animation logic
+animate:
+	set animate_sprite_ctr 0
+	animate_loop:
+		set animate_sprite_y [sprite_y animate_sprite_ctr]
+		set animate_sprite_x [sprite_x animate_sprite_ctr]
+		set animate_sprite_idx [sprite_anim_idx animate_sprite_ctr]
+		if animate_sprite_idx <> $FF then
+		   if [animation animate_sprite_idx] = $80 branchto animate_finishsprite
+		   set animate_sprite_y + animate_sprite_y [animation animate_sprite_idx]
+		   inc animate_sprite_idx
+		   set animate_sprite_x + animate_sprite_x [animation animate_sprite_idx]
+		   inc animate_sprite_idx
+		   set [sprite_anim_idx animate_sprite_ctr] animate_sprite_idx
+		   goto animate_endif
+		   animate_finishsprite:
+			set [sprite_anim_idx animate_sprite_ctr] $FF
+		   animate_endif:
+		endif
+		set [sprite_mem << animate_sprite_ctr 2] animate_sprite_y
+		set [sprite_mem + << animate_sprite_ctr 2 3] animate_sprite_x
+		inc animate_sprite_ctr
+		if animate_sprite_ctr <> 4 goto animate_loop
+	return
 
 
 // -------- PPU MANIPULATION ---------
@@ -488,6 +530,13 @@ load_arrows:
 load_play_hand_sprites:
 	set lphs_ctr 0
 	set lphs_attribs 0
+	lphs_init:
+		set [sprite_y lphs_ctr] $FF
+		set [sprite_x lphs_ctr] $FF
+		set [sprite_anim_idx lphs_ctr] $FF
+		inc lphs_ctr
+		if lphs_ctr <> 4 branchto lphs_init
+	set lphs_ctr 0
 	load_play_hand_sprites_loop:
 		set [sprite_mem lphs_ctr] $FF
 		inc lphs_ctr
@@ -534,18 +583,24 @@ load_score_hand_sprites:
 	return
 
 load_score_text_init:
-	set lsti_counter 0
-	set lsti_loadfrom 0
-	lsti_loop:
-		set $2006 [score_text_positions	lsti_loadfrom]
-		inc lsti_loadfrom
-		set $2006 - [score_text_positions lsti_loadfrom] 1
-		inc lsti_loadfrom
-		set $2007 $F1
-		set $2007 $F2
-		set $2007 $F2
-		inc lsti_counter
-		if lsti_counter <> 4 branchto lsti_loop
+	set lsti_page 0
+	lsti_outer_loop:
+		set lsti_counter 0
+		set lsti_loadfrom 0
+		lsti_loop:
+			set lsti_tmp [score_text_positions lsti_loadfrom]
+			set lsti_tmp + lsti_tmp << lsti_page 2
+			set $2006 lsti_tmp
+			inc lsti_loadfrom
+			set $2006 - [score_text_positions lsti_loadfrom] 1
+			inc lsti_loadfrom
+			set $2007 $F1
+			set $2007 $F2
+			set $2007 $F2
+			inc lsti_counter
+			if lsti_counter <> 4 branchto lsti_loop
+		inc lsti_page
+		if lsti_page <> 2 branchto lsti_outer_loop
 	return
 
 load_end_screen:
@@ -621,6 +676,7 @@ game_step:
 	   dec countdown_step
 	endif
 	gosub update_hands
+	gosub animate
 	return
 
 change_arrow:
@@ -666,7 +722,9 @@ draw_scores:
 	draw_scores_loop:
 		set compute_score_arg [scores draw_scores_player]
 		gosub compute_score_sprites
-		set $2006 [score_text_positions << draw_scores_player 1]
+		set draw_scores_textpo [score_text_positions << draw_scores_player 1]
+		if playing = 0 set draw_scores_textpo + draw_scores_textpo $4
+		set $2006 draw_scores_textpo
 		set $2006 [score_text_positions + 1 << draw_scores_player 1]
 		set $2007 score_sprite_tens
 		set $2007 score_sprite_ones
@@ -706,7 +764,7 @@ hide_hands:
 	hide_hands_loop:
 		set [sprite_mem hide_hands_ctr] $FF
 		set hide_hands_ctr + 4 hide_hands_ctr
-		if hide_hands_ctr <> 32 branchto hide_hands_loop
+		if hide_hands_ctr <> 16 branchto hide_hands_loop
 	return
 
 compute_winner:
@@ -851,6 +909,12 @@ pet_hand_positions:
 	data $4E,$94, $3D,$5F, $61,$5D, $4F,$76
 	data $4E,$9A, $3D,$65, $61,$63, $4F,$7C
 	data $4E,$A0, $3D,$6B, $61,$68, $4F,$81
+
+// animation scripts
+// format is pairs of y_offset, x_offset
+// $80 indicates end of script
+animation:
+	data $FC, $00, $FD, $00, $FE, $00, $FF, $00, $80
 
 // y and x positions of score hands
 score_hand_positions:
