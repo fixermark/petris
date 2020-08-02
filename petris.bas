@@ -1,3 +1,6 @@
+// Petris copyright 2020 Mark T. Tomczak
+// Source code released under MIT license; see LICENSE file for details
+
 //header for nesasm
 asm
 	.inesprg 1 ;//one PRG bank
