@@ -13,9 +13,17 @@ where it wants to be petted.
 
 ![Petris example game, showing hands petting adorable dog](/play.png)
 
-To pet the dog, press the controller button corresponding to the location: left
-for head, up for back, right for butt, down for tummy. The highlighted blue
-arrow indicates where the dog wants pets. Players score 1 point for petting the
-right location and lose 1 point for petting another location. At the end of 20
-seconds, the player with the most points and the dog both win; the dog always
-wins because it got lots of good pets. Player 1 may press "A" to play again.
+To pet the dog, press the controller button corresponding to the location:
+
+* **Left** for head
+* **Up** for back
+* **Right** for butt
+* **Down** for tummy
+
+The highlighted blue arrow indicates where the dog wants pets. Players score 1
+point for petting the right location and lose 1 point for petting another
+location.
+
+At the end of 20 seconds, the player with the most points and the dog
+both win; the dog always wins because it got lots of good pets. Player 1 may
+press "A" to play again.
