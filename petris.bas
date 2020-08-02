@@ -61,6 +61,7 @@ initgame:
 	gosub load_palette
 	gosub clear_second_buffer
 	gosub load_logo
+	gosub load_copyright
 	gosub load_dog
 	gosub load_press_a_msg
 	gosub load_arrows
@@ -90,6 +91,7 @@ mainwait:
 
 	gosub nmi_wait
 	gosub clear_press_a_msg
+	gosub clear_copyright
 	gosub vwait_end
 
 set countdown_step 3
@@ -411,6 +413,28 @@ load_logo:
 			if load_logo_tiles_loaded <> 5 branchto load_logo_tile_loop
 		inc load_logo_rows_loaded
 		if load_logo_rows_loaded <> 2 branchto load_logo_row_loop
+	return
+
+load_copyright:
+	set $2006 [copyright 0]
+	set $2006 [copyright 1]
+	set tmp [copyright 2]
+	set ctr [copyright 3]
+	load_copyright_loop:
+		set $2007 tmp
+		inc tmp
+		dec ctr
+		if ctr <> 0 branchto load_copyright_loop
+	return
+
+clear_copyright:
+	set $2006 [copyright 0]
+	set $2006 [copyright 1]
+	set ctr [copyright 3]
+	clear_copyright_loop:
+		set $2007 $00
+		dec ctr
+		if ctr <> 0 branchto clear_copyright_loop
 	return
 
 // load "Press A!" call to action into VRAM
@@ -815,8 +839,13 @@ random2:
 petris_logo_rows_start:
 	data $20, $6D, $20,$8D
 
+
 petris_logo_row_first_tiles:
 	data $05, $15
+
+// Copyright text start y, start x, fist chr, length
+copyright:
+	data $22, $CA, $24, $0C
 
 // "Press A!" call to action tile high-byte, tile low-byte, CHR start, CHR length
 press_a_msg:
