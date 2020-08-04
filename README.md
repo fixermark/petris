@@ -27,3 +27,28 @@ location.
 At the end of 20 seconds, the player with the most points and the dog
 both win; the dog always wins because it got lots of good pets. Player 1 may
 press "A" to play again.
+
+# Development
+
+Petris is compiled using [nesasm](https://github.com/camsaul/nesasm) (commit
+229033a4b76466b447ad47704808a4d03c493cee) and
+[nbasic](https://github.com/fixermark/nbasic) (commit
+f0cdef7fcc12e34a4468b6d7e392dad59d634c24). Once both are installed and on your
+PATH, `make` should cover you. I edited the CHR files using
+[YY-CHR](https://www.romhacking.net/utilities/119/), but any CHR editor should
+work fine.
+
+Pull requests are generally unlikely to be accepted (even the bugs matter in a
+NES game!), but branches and fun hacks are extremely encouraged. Add features!
+Make more adorable dogs! Have fun!
+
+# Acknowledgments
+
+Special thanks to Amanda Leight, for coming up with the original idea and for
+being extremely supportive of her husband's weird hobbies.
+
+Much appreciation to Bob Rost, author of the nbasic compiler, who's "Game
+Development for the 8-bit NES" student-taught course in college was my doorway
+into working with this quirky architecture. His
+[resources](http://bobrost.com/nes/resources.php) list is an excellent source,
+especially for nbasic itself.
