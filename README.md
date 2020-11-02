@@ -38,6 +38,13 @@ PATH, `make` should cover you. I edited the CHR files using
 [YY-CHR](https://www.romhacking.net/utilities/119/), but any CHR editor should
 work fine.
 
+Game music is in the `gametheme.fms` file, which is a FamiStudio project file (https://famistudio.org/). If changed, the music in the game can be updated as follows:
+
+1. In FamiStudio, select Export and export as "FamiStudio Music Code"
+2. The resulting file has CRLF endings. Convert to LF.
+3. In `petris.bas`, replace the code between `asm` and `endasm` in the section labeled `petris-gametheme` with the contents of the exported file.
+4. Run `make` to compile in the new theme song.
+
 Pull requests are generally unlikely to be accepted (even the bugs matter in a
 NES game!), but branches and fun hacks are extremely encouraged. Add features!
 Make more adorable dogs! Have fun!
@@ -52,3 +59,9 @@ Development for the 8-bit NES" student-taught course in college was my doorway
 into working with this quirky architecture. His
 [resources](http://bobrost.com/nes/resources.php) list is an excellent source,
 especially for nbasic itself.
+
+Thanks to BleuBleu for creation of the [FamiStudio](https://github.com/BleuBleu/FamiStudio) framework, editing tool, and music engine.
+
+Petris theme song is copyright 2020 Frances McCullar, used with permission.
+
+Thanks to Frances, Ashley, and Cecilia McCullar for music assistance.
